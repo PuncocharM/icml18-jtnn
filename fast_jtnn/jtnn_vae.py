@@ -1,15 +1,15 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from mol_tree import Vocab, MolTree
-from nnutils import create_var, flatten_tensor, avg_pool
-from jtnn_enc import JTNNEncoder
-from jtnn_dec import JTNNDecoder
-from mpn import MPN
-from jtmpn import JTMPN
-from datautils import tensorize
+from .mol_tree import Vocab, MolTree
+from .nnutils import create_var, flatten_tensor, avg_pool
+from .jtnn_enc import JTNNEncoder
+from .jtnn_dec import JTNNDecoder
+from .mpn import MPN
+from .jtmpn import JTMPN
+from .datautils import tensorize
 
-from chemutils import enum_assemble, set_atommap, copy_edit_mol, attach_mols
+from .chemutils import enum_assemble, set_atommap, copy_edit_mol, attach_mols
 import rdkit
 import rdkit.Chem as Chem
 import copy, math
@@ -20,7 +20,7 @@ class JTNNVAE(nn.Module):
         super(JTNNVAE, self).__init__()
         self.vocab = vocab
         self.hidden_size = hidden_size
-        self.latent_size = latent_size = latent_size / 2 #Tree and Mol has two vectors
+        self.latent_size = latent_size = latent_size // 2 #Tree and Mol has two vectors
 
         self.jtnn = JTNNEncoder(hidden_size, depthT, nn.Embedding(vocab.size(), hidden_size))
         self.decoder = JTNNDecoder(vocab, hidden_size, latent_size, nn.Embedding(vocab.size(), hidden_size))
@@ -29,7 +29,7 @@ class JTNNVAE(nn.Module):
         self.mpn = MPN(hidden_size, depthG)
 
         self.A_assm = nn.Linear(latent_size, hidden_size, bias=False)
-        self.assm_loss = nn.CrossEntropyLoss(size_average=False)
+        self.assm_loss = nn.CrossEntropyLoss(reduction='sum')
 
         self.T_mean = nn.Linear(hidden_size, latent_size)
         self.T_var = nn.Linear(hidden_size, latent_size)
@@ -66,8 +66,11 @@ class JTNNVAE(nn.Module):
         return z_vecs, kl_loss
 
     def sample_prior(self, prob_decode=False):
-        z_tree = torch.randn(1, self.latent_size).cuda()
-        z_mol = torch.randn(1, self.latent_size).cuda()
+        z_tree = torch.randn(1, self.latent_size)
+        z_mol = torch.randn(1, self.latent_size)
+        if torch.cuda.is_available():
+            z_tree = z_tree.cuda()
+            z_mol = z_mol.cuda()
         return self.decode(z_tree, z_mol, prob_decode)
 
     def forward(self, x_batch, beta):
@@ -155,8 +158,9 @@ class JTNNVAE(nn.Module):
 
         cur_mol = cur_mol.GetMol()
         set_atommap(cur_mol)
-        cur_mol = Chem.MolFromSmiles(Chem.MolToSmiles(cur_mol))
-        return Chem.MolToSmiles(cur_mol) if cur_mol is not None else None
+        return cur_mol
+        #cur_mol = Chem.MolFromSmiles(Chem.MolToSmiles(cur_mol))
+        #return Chem.MolToSmiles(cur_mol) if cur_mol is not None else None
         
     def dfs_assemble(self, y_tree_mess, x_mol_vecs, all_nodes, cur_mol, global_amap, fa_amap, cur_node, fa_node, prob_decode, check_aroma):
         fa_nid = fa_node.nid if fa_node is not None else -1
@@ -174,7 +178,9 @@ class JTNNVAE(nn.Module):
             return None, cur_mol
 
         cand_smiles,cand_amap = zip(*cands)
-        aroma_score = torch.Tensor(aroma_score).cuda()
+        aroma_score = torch.Tensor(aroma_score)
+        if torch.cuda.is_available():
+            aroma_score = aroma_score.cuda()
         cands = [(smiles, all_nodes, cur_node) for smiles in cand_smiles]
 
         if len(cands) > 1:
@@ -193,7 +199,7 @@ class JTNNVAE(nn.Module):
 
         backup_mol = Chem.RWMol(cur_mol)
         pre_mol = cur_mol
-        for i in xrange(cand_idx.numel()):
+        for i in range(cand_idx.numel()):
             cur_mol = Chem.RWMol(backup_mol)
             pred_amap = cand_amap[cand_idx[i].item()]
             new_global_amap = copy.deepcopy(global_amap)

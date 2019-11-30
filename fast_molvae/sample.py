@@ -25,9 +25,10 @@ vocab = [x.strip("\r\n ") for x in open(args.vocab)]
 vocab = Vocab(vocab)
 
 model = JTNNVAE(vocab, args.hidden_size, args.latent_size, args.depthT, args.depthG)
-model.load_state_dict(torch.load(args.model))
-model = model.cuda()
+model.load_state_dict(torch.load(args.model, map_location='cpu'))
+if torch.cuda.is_available():
+    model = model.cuda()
 
 torch.manual_seed(0)
-for i in xrange(args.nsample):
-    print model.sample_prior()
+for i in range(args.nsample):
+    print(model.sample_prior())
