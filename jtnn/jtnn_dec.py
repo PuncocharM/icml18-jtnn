@@ -221,7 +221,7 @@ class JTNNDecoder(nn.Module):
             stop_score = nn.Sigmoid()(self.U_s(stop_hidden) * 20).squeeze()
             
             if prob_decode:
-                backtrack = (torch.bernoulli(1.0 - stop_score.data)[0] == 1)
+                backtrack = (torch.bernoulli(1.0 - stop_score.data).item() == 1)
             else:
                 backtrack = (stop_score.item() < 0.5)
 
@@ -229,7 +229,7 @@ class JTNNDecoder(nn.Module):
                 new_h = GRU(cur_x, cur_h_nei, self.W_z, self.W_r, self.U_r, self.W_h)
                 pred_hidden = torch.cat([new_h,mol_vec], dim=1)
                 pred_hidden = nn.ReLU()(self.W(pred_hidden))
-                pred_score = nn.Softmax()(self.W_o(pred_hidden) * 20)
+                pred_score = nn.Softmax(dim=1)(self.W_o(pred_hidden))
                 if prob_decode:
                     sort_wid = torch.multinomial(pred_score.data.squeeze(), 5)
                 else:

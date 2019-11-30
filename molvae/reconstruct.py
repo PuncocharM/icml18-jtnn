@@ -48,17 +48,17 @@ for smiles in data:
     mol = Chem.MolFromSmiles(smiles)
     smiles3D = Chem.MolToSmiles(mol, isomericSmiles=True)
     
-    dec_smiles = model.reconstruct(smiles3D)
-    if dec_smiles == smiles3D:
-        acc += 1
-    tot += 1
-    print acc / tot
-    """
+    # dec_smiles = model.reconstruct(smiles3D)
+    # if dec_smiles == smiles3D:
+    #     acc += 1
+    # tot += 1
+    # print(acc / tot)
+
     dec_smiles = model.recon_eval(smiles3D)
     tot += len(dec_smiles)
     for s in dec_smiles:
         if s == smiles3D:
             acc += 1
-    print acc / tot
-    """
+    print(acc / tot)
+
 

@@ -183,9 +183,9 @@ class JTNNVAE(nn.Module):
         mol_log_var = -torch.abs(self.G_var(mol_vec)) #Following Mueller et al.
 
         epsilon = create_var(torch.randn(1, self.latent_size // 2), False)
-        tree_vec = tree_mean + torch.exp(tree_log_var // 2) * epsilon
+        tree_vec = tree_mean + torch.exp(tree_log_var / 2) * epsilon
         epsilon = create_var(torch.randn(1, self.latent_size // 2), False)
-        mol_vec = mol_mean + torch.exp(mol_log_var // 2) * epsilon
+        mol_vec = mol_mean + torch.exp(mol_log_var / 2) * epsilon
         return self.decode(tree_vec, mol_vec, prob_decode)
 
     def recon_eval(self, smiles):
@@ -201,9 +201,9 @@ class JTNNVAE(nn.Module):
         all_smiles = []
         for i in range(10):
             epsilon = create_var(torch.randn(1, self.latent_size // 2), False)
-            tree_vec = tree_mean + torch.exp(tree_log_var // 2) * epsilon
+            tree_vec = tree_mean + torch.exp(tree_log_var / 2) * epsilon
             epsilon = create_var(torch.randn(1, self.latent_size // 2), False)
-            mol_vec = mol_mean + torch.exp(mol_log_var // 2) * epsilon
+            mol_vec = mol_mean + torch.exp(mol_log_var / 2) * epsilon
             for j in range(10):
                 new_smiles = self.decode(tree_vec, mol_vec, prob_decode=True)
                 all_smiles.append(new_smiles)
@@ -284,8 +284,8 @@ class JTNNVAE(nn.Module):
         scores = torch.mv(cand_vecs, mol_vec) * 20
 
         if prob_decode:
-            probs = nn.Softmax()(scores.view(1,-1)).squeeze() + 1e-5 #prevent prob = 0
-            cand_idx = torch.multinomial(probs, probs.numel())
+            probs = nn.Softmax(dim=1)(scores.view(1,-1)).squeeze() + 1e-5 #prevent prob = 0
+            cand_idx = torch.multinomial(probs.reshape(-1), probs.numel())
         else:
             _,cand_idx = torch.sort(scores, descending=True)
 
