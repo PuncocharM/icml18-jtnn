@@ -1,3 +1,4 @@
+from tqdm import tqdm
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -35,13 +36,23 @@ depth = int(opts.depth)
 nsample = int(opts.nsample)
 stereo = True if int(opts.stereo) == 1 else False
 
+if torch.cuda.is_available():
+    print('Using CUDA')
+else:
+    print('Using CPU')
+
+
 model = JTNNVAE(vocab, hidden_size, latent_size, depth, stereo=stereo)
-load_dict = torch.load(opts.model_path)
+if torch.cuda.is_available():
+    load_dict = torch.load(opts.model_path)
+else:
+    load_dict = torch.load(opts.model_path, map_location='cpu')
 missing = {k: v for k, v in model.state_dict().items() if k not in load_dict}
 load_dict.update(missing) 
 model.load_state_dict(load_dict)
-model = model.cuda()
+if torch.cuda.is_available():
+    model = model.cuda()
 
 torch.manual_seed(0)
-for i in xrange(nsample):
-    print model.sample_prior(prob_decode=False)
+for i in tqdm(range(nsample)):
+    print(model.sample_prior(prob_decode=False))

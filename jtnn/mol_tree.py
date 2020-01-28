@@ -1,7 +1,11 @@
 import rdkit
 import rdkit.Chem as Chem
 import copy
-from .chemutils import get_clique_mol, tree_decomp, get_mol, get_smiles, set_atommap, enum_assemble, decode_stereo
+
+if __name__ == "__main__":
+    from chemutils import get_clique_mol, tree_decomp, get_mol, get_smiles, set_atommap, enum_assemble, decode_stereo
+else:
+    from .chemutils import get_clique_mol, tree_decomp, get_mol, get_smiles, set_atommap, enum_assemble, decode_stereo
 
 def get_slots(smiles):
     mol = Chem.MolFromSmiles(smiles)
@@ -128,11 +132,13 @@ class MolTree(object):
 
 if __name__ == "__main__":
     import sys
+    from tqdm import tqdm
+    
     lg = rdkit.RDLogger.logger() 
     lg.setLevel(rdkit.RDLogger.CRITICAL)
 
     cset = set()
-    for i,line in enumerate(sys.stdin):
+    for line in tqdm(list(sys.stdin)):
         smiles = line.split()[0]
         mol = MolTree(smiles)
         for c in mol.nodes:

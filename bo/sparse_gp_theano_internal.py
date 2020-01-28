@@ -4,7 +4,7 @@ import theano.tensor as T
 
 import numpy as np
 
-from gauss import * 
+from .gauss import * 
 
 from theano.tensor.slinalg import Cholesky as MatrixChol
 

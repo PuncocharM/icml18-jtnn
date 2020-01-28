@@ -7,7 +7,7 @@ from __future__ import print_function
 import theano
 import theano.tensor as T
 
-from sparse_gp_theano_internal import *
+from .sparse_gp_theano_internal import *
 
 import scipy.stats    as sps
 import scipy.optimize as spo
@@ -27,14 +27,14 @@ def global_optimization(grid, lower, upper, function_grid, function_scalar, func
 
     X_initial = grid[ best : (best + 1), : ]
     def objective(X):
-        X = casting(X)
-        X = X.reshape((1, grid.shape[ 1 ]))
+        X = casting(X).reshape((1, grid.shape[1]))
         value = function_scalar(X)
         gradient_value = function_scalar_gradient(X).flatten()
         return np.float(value), gradient_value.astype(np.float)
 
-    lbfgs_bounds = zip(lower.tolist(), upper.tolist())
+    lbfgs_bounds = list(zip(lower.tolist(), upper.tolist()))
     x_optimal, y_opt, opt_info = spo.fmin_l_bfgs_b(objective, X_initial, bounds = lbfgs_bounds, iprint = 0, maxiter = 150)
+    print(opt_info)
     x_optimal = x_optimal.reshape((1, grid.shape[ 1 ]))
 
     return x_optimal, y_opt
@@ -147,8 +147,7 @@ class SparseGP:
         e = self.getEnergy()
         energy = theano.function([ X, Z, y ], e, givens = { self.input_means: X, self.input_vars: Z, self.training_targets: y })
         all_params = self.get_params()
-        energy_grad = theano.function([ X, Z, y ], T.grad(e, all_params), \
-            givens = { self.input_means: X, self.input_vars: Z, self.training_targets: y })
+        energy_grad = theano.function([ X, Z, y ], T.grad(e, all_params), givens = { self.input_means: X, self.input_vars: Z, self.training_targets: y })
 
         initial_params = theano.function([ ], all_params)()
 
@@ -190,7 +189,7 @@ class SparseGP:
         return y_opt
 
     def train_via_ADAM(self, input_means, input_vars, training_targets, input_means_test, input_vars_test, test_targets, \
-        max_iterations = 500, minibatch_size = 4000, learning_rate = 1e-3, ignoroe_variances = True):
+        max_iterations = 500, minibatch_size = 4000, learning_rate = 1e-3, ignoroe_variances = True, verbose=1):
 
         input_means = input_means.astype(theano.config.floatX)
         input_vars = input_vars.astype(theano.config.floatX)
@@ -201,8 +200,9 @@ class SparseGP:
         self.input_vars.set_value(input_vars[ selected_points, : ])
         self.original_training_targets.set_value(training_targets[ selected_points, : ])
 
-        print('Initializing network')
-	sys.stdout.flush()
+        if verbose > 0:
+            print('Initializing network')
+        sys.stdout.flush()
         self.setForTraining()
         self.initialize()
 
@@ -214,18 +214,22 @@ class SparseGP:
 
         all_params = self.get_params()
 
-        print('Compiling adam updates')
-	sys.stdout.flush()
+        if verbose > 0:
+            print('Compiling adam updates')
+        sys.stdout.flush()
 
-        process_minibatch_adam = theano.function([ X, Z, y ], -e, updates = adam_theano(-e, all_params, learning_rate), \
-            givens = { self.input_means: X, self.input_vars: Z, self.original_training_targets: y })
+        updates = adam_theano(-e, all_params, learning_rate)
+        process_minibatch_adam = theano.function([ X, Z, y ], -e, updates=updates, givens = { self.input_means: X, self.input_vars: Z, self.original_training_targets: y })
 
         # Main loop of the optimization
 
-        print('Training')
+        if verbose > 0:
+            print('Training')
         sys.stdout.flush()
         n_batches = int(np.ceil(1.0 * n_data_points / minibatch_size))
         for j in range(max_iterations):
+            if verbose > 0:
+                print('Epoch: {}'.format(j))
             suffle = np.random.choice(n_data_points, n_data_points, replace = False)
             input_means = input_means[ suffle, : ]
             input_vars = input_vars[ suffle, : ]
@@ -240,30 +244,32 @@ class SparseGP:
                 current_energy = process_minibatch_adam(minibatch_data_means, minibatch_data_vars, minibatch_targets)
                 elapsed_time = time.time() - start
 
-                print('Epoch: {}, Mini-batch: {} of {} - Energy: {} Time: {}'.format(j, i, n_batches, current_energy, elapsed_time))
+                if verbose > 1:
+                    print('Epoch: {}, Mini-batch: {} of {} - Energy: {} Time: {}'.format(j, i, n_batches, current_energy, elapsed_time))
                 sys.stdout.flush()
 
-            pred, uncert = self.predict(input_means_test, input_vars_test)
-            test_error = np.sqrt(np.mean((pred - test_targets)**2))
-            test_ll = np.mean(sps.norm.logpdf(pred - test_targets, scale = np.sqrt(uncert)))
+            if verbose > 0:
+                pred, uncert = self.predict(input_means_test, input_vars_test)
+                test_error = np.sqrt(np.mean((pred - test_targets)**2))
+                test_ll = np.mean(sps.norm.logpdf(pred - test_targets, scale = np.sqrt(uncert)))
 
-            print('Test error: {} Test ll: {}'.format(test_error, test_ll))
-            sys.stdout.flush()
-        
-            pred = np.zeros((0, 1))
-            uncert = np.zeros((0, uncert.shape[ 1 ]))
-            for i in range(n_batches):
-                minibatch_data_means = input_means[ i * minibatch_size : min((i + 1) * minibatch_size, n_data_points), : ]
-                minibatch_data_vars = input_vars[ i * minibatch_size : min((i + 1) * minibatch_size, n_data_points), : ]
-                pred_new, uncert_new = self.predict(minibatch_data_means, minibatch_data_vars)
-                pred = np.concatenate((pred, pred_new), 0)
-                uncert = np.concatenate((uncert, uncert_new), 0)
+                print('Test error: {} Test ll: {}'.format(test_error, test_ll))
+                sys.stdout.flush()
 
-            training_error = np.sqrt(np.mean((pred - training_targets)**2))
-            training_ll = np.mean(sps.norm.logpdf(pred - training_targets, scale = np.sqrt(uncert)))
-     
-            print('Train error: {} Train ll: {}'.format(training_error, training_ll))
-            sys.stdout.flush()
+                pred = np.zeros((0, 1))
+                uncert = np.zeros((0, uncert.shape[ 1 ]))
+                for i in range(n_batches):
+                    minibatch_data_means = input_means[ i * minibatch_size : min((i + 1) * minibatch_size, n_data_points), : ]
+                    minibatch_data_vars = input_vars[ i * minibatch_size : min((i + 1) * minibatch_size, n_data_points), : ]
+                    pred_new, uncert_new = self.predict(minibatch_data_means, minibatch_data_vars)
+                    pred = np.concatenate((pred, pred_new), 0)
+                    uncert = np.concatenate((uncert, uncert_new), 0)
+
+                training_error = np.sqrt(np.mean((pred - training_targets)**2))
+                training_ll = np.mean(sps.norm.logpdf(pred - training_targets, scale = np.sqrt(uncert)))
+
+                print('Train error: {} Train ll: {}'.format(training_error, training_ll))
+                sys.stdout.flush()
 
     def get_incumbent(self, grid, lower, upper):
         
@@ -289,7 +295,7 @@ class SparseGP:
 
         return global_optimization(grid, lower, upper, function_grid, function_scalar, function_scalar_gradient)[ 0 ]
 
-    def batched_greedy_ei(self, q, lower, upper, n_samples = 1):
+    def batched_greedy_ei(self, q, lower, upper, n_samples=1, verbose=0):
 
         self.setForPrediction()
 
@@ -312,16 +318,17 @@ class SparseGP:
         # We optimize the ei in a greedy manner
 
         for i in range(1, q):
-
             new_point = global_optimization(grid, lower, upper, function_grid, function_scalar, function_scalar_gradient)[ 0 ]
             X_numpy = casting(np.concatenate([ X_numpy, new_point ], 0))
             randomness_numpy = casting(0 * np.random.randn(X_numpy.shape[ 0 ], n_samples).astype(theano.config.floatX))
             X.set_value(X_numpy)
             randomness.set_value(randomness_numpy)
-            print(i, X_numpy)
+            if verbose > 1:
+                print(i, new_point)
 
         m, v = self.predict(X_numpy, 0 * X_numpy)
     
-        print("Predictive mean at selected points:\n", m)
+        if verbose > 0:
+            print("Predictive mean at selected points:\n", m)
 
         return X_numpy
