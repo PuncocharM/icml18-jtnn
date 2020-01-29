@@ -251,12 +251,15 @@ def enum_attach(ctr_mol, nei_node, amap, singletons):
     return att_confs
 
 #Try rings first: Speed-Up 
-def enum_assemble(node, neighbors, prev_nodes=[], prev_amap=[]):
+def enum_assemble(node, neighbors, prev_nodes=[], prev_amap=[], one_enough=False):
     all_attach_confs = []
     singletons = [nei_node.nid for nei_node in neighbors + prev_nodes if nei_node.mol.GetNumAtoms() == 1]
-
+    
     def search(cur_amap, depth):
+        if len(all_attach_confs) > 0 and one_enough:
+            return
         if len(all_attach_confs) > MAX_NCAND:
+            print('Warning: exceeded MAX_NCAND')
             return
         if depth == len(neighbors):
             all_attach_confs.append(cur_amap)
@@ -284,6 +287,10 @@ def enum_assemble(node, neighbors, prev_nodes=[], prev_amap=[]):
             search(new_amap, depth + 1)
 
     search(prev_amap, 0)
+    
+    if one_enough:
+        return len(all_attach_confs) > 0
+    
     cand_smiles = set()
     candidates = []
     for amap in all_attach_confs:

@@ -316,6 +316,5 @@ def can_assemble(node_x, node_y):
     neighbors = sorted(neighbors, key=lambda x:x.mol.GetNumAtoms(), reverse=True)
     singletons = [nei for nei in neis if nei.mol.GetNumAtoms() == 1]
     neighbors = singletons + neighbors
-    cands = enum_assemble(node_x, neighbors)
-    return len(cands) > 0
+    return enum_assemble(node_x, neighbors, one_enough=True)
 
