@@ -2,14 +2,17 @@
 
 Official implementation of our Junction Tree Variational Autoencoder [https://arxiv.org/abs/1802.04364](https://arxiv.org/abs/1802.04364)
 
+In this fork the code is updated to run with Pyhon 3 and a newer version of PyTorch.
+
 # Accelerated Version
 We have accelerated our code! The new code is in `fast_jtnn/`, and the VAE training script is in `fast_molvae/`. Please refer to `fast_molvae/README.md` for details.
 
 # Requirements
 * Linux (We only tested on Ubuntu)
-* RDKit (version >= 2017.09)
-* Python (version == 2.7)
-* PyTorch (version >= 0.2)
+* RDKit (version == 2017.09) ... with newer rdkit you need to recalculate the vocabulary and retrain the models
+* Python (version == 3.6)
+* PyTorch (version >= 1.3.1)
+* tqdm
 
 To install RDKit, please follow the instructions here [http://www.rdkit.org/docs/Install.html](http://www.rdkit.org/docs/Install.html)
 

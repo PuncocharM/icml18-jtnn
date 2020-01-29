@@ -9,14 +9,14 @@ The MOSES dataset is in `icml18-jtnn/data/moses` (copied from https://github.com
 If you are running our code on a new dataset, you need to compute the vocabulary from your dataset.
 To perform tree decomposition over a set of molecules, run
 ```
-python ../fast_jtnn/mol_tree.py < ../data/moses/train.txt
+python -m fast_jtnn.mol_tree < data/moses/train.txt
 ```
 This gives you the vocabulary of cluster labels over the dataset `train.txt`. 
 
 ## Training
 Step 1: Preprocess the data:
 ```
-python preprocess.py --train ../data/moses/train.txt --split 100 --jobs 16
+python -m fast_molvae.preprocess --train ../data/moses/train.txt --split 100 --jobs 16
 mkdir moses-processed
 mv tensor* moses-processed
 ```

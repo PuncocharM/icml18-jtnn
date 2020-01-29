@@ -2,6 +2,6 @@
 
 To perform tree decomposition over a set of molecules, run
 ```
-python mol_tree.py < ../data/all.txt
+python -m jtnn.mol_tree < data/zinc/all.txt > data/zinc/vocab.txt
 ```
 This gives you the vocabulary of all cluster labels over the entire dataset.
