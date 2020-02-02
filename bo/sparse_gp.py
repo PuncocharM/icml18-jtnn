@@ -14,6 +14,7 @@ import scipy.optimize as spo
 import numpy as np
 import sys
 import time
+from tqdm import tqdm
 
 def casting(x):
     return np.array(x).astype(theano.config.floatX)
@@ -34,7 +35,6 @@ def global_optimization(grid, lower, upper, function_grid, function_scalar, func
 
     lbfgs_bounds = list(zip(lower.tolist(), upper.tolist()))
     x_optimal, y_opt, opt_info = spo.fmin_l_bfgs_b(objective, X_initial, bounds = lbfgs_bounds, iprint = 0, maxiter = 150)
-    print(opt_info)
     x_optimal = x_optimal.reshape((1, grid.shape[ 1 ]))
 
     return x_optimal, y_opt
@@ -189,7 +189,7 @@ class SparseGP:
         return y_opt
 
     def train_via_ADAM(self, input_means, input_vars, training_targets, input_means_test, input_vars_test, test_targets, \
-        max_iterations = 500, minibatch_size = 4000, learning_rate = 1e-3, ignoroe_variances = True, verbose=1):
+        max_iterations = 500, minibatch_size = 4000, learning_rate = 1e-3, ignoroe_variances = True, verbose=1, progress_bar=tqdm):
 
         input_means = input_means.astype(theano.config.floatX)
         input_vars = input_vars.astype(theano.config.floatX)
@@ -227,7 +227,7 @@ class SparseGP:
             print('Training')
         sys.stdout.flush()
         n_batches = int(np.ceil(1.0 * n_data_points / minibatch_size))
-        for j in range(max_iterations):
+        for j in progress_bar(range(max_iterations)):
             if verbose > 0:
                 print('Epoch: {}'.format(j))
             suffle = np.random.choice(n_data_points, n_data_points, replace = False)
@@ -271,6 +271,7 @@ class SparseGP:
                 print('Train error: {} Train ll: {}'.format(training_error, training_ll))
                 sys.stdout.flush()
 
+                
     def get_incumbent(self, grid, lower, upper):
         
         self.sparse_gp.compute_output()
@@ -284,6 +285,7 @@ class SparseGP:
 
         return global_optimization(grid, lower, upper, function_grid, function_scalar, function_scalar_gradient)[ 1 ]
 
+    
     def optimize_ei(self, grid, lower, upper, incumbent):
 
         X = T.matrix('X', dtype = theano.config.floatX)
@@ -295,7 +297,8 @@ class SparseGP:
 
         return global_optimization(grid, lower, upper, function_grid, function_scalar, function_scalar_gradient)[ 0 ]
 
-    def batched_greedy_ei(self, q, lower, upper, n_samples=1, verbose=0):
+    
+    def batched_greedy_ei(self, q, lower, upper, n_samples=1, verbose=0, progress_bar=tqdm):
 
         self.setForPrediction()
 
@@ -317,18 +320,16 @@ class SparseGP:
 
         # We optimize the ei in a greedy manner
 
-        for i in range(1, q):
+        for i in progress_bar(range(1, q)):
             new_point = global_optimization(grid, lower, upper, function_grid, function_scalar, function_scalar_gradient)[ 0 ]
             X_numpy = casting(np.concatenate([ X_numpy, new_point ], 0))
             randomness_numpy = casting(0 * np.random.randn(X_numpy.shape[ 0 ], n_samples).astype(theano.config.floatX))
             X.set_value(X_numpy)
             randomness.set_value(randomness_numpy)
-            if verbose > 1:
-                print(i, new_point)
-
-        m, v = self.predict(X_numpy, 0 * X_numpy)
-    
-        if verbose > 0:
+        
+                
+        if verbose > 1:
+            m, v = self.predict(X_numpy, 0 * X_numpy)
             print("Predictive mean at selected points:\n", m)
 
         return X_numpy

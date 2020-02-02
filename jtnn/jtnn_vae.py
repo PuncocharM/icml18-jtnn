@@ -223,6 +223,11 @@ class JTNNVAE(nn.Module):
             all_smiles.append(s)
         return all_smiles
     
+    def decode_numpy(self, tree_vec, mol_vec, prob_decode):
+        tree_vec = create_var(torch.from_numpy(tree_vec).float())
+        mol_vec = create_var(torch.from_numpy(mol_vec).float())
+        return self.decode(tree_vec, mol_vec, prob_decode)
+    
     def decode(self, tree_vec, mol_vec, prob_decode):
         pred_root,pred_nodes = self.decoder.decode(tree_vec, prob_decode)
 
