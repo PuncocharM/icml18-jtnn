@@ -2,8 +2,7 @@
 
 For Bayesian optimization, we used the scripts from https://github.com/mkusner/grammarVAE
 
-This requires you to install their customized Theano library. 
-Please see https://github.com/mkusner/grammarVAE#bayesian-optimization for installation.
+I have updated the code, so that the customized Theano is not needed anymore. Just install the original Theano via conda or pip.
 
 ## Usage
 First generate the latent representation of all training molecules:
