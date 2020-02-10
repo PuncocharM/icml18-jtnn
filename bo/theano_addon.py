@@ -2,22 +2,74 @@ from __future__ import absolute_import, print_function, division
 
 import logging
 
-import numpy
+import numpy as np
 import scipy.linalg as spla
-from six.moves import xrange
 
 import theano
+import theano.tensor as T
 from theano.tensor import as_tensor_variable
 from theano.tensor.nlinalg import *
 from theano.gof import Op, Apply
-from theano.gradient import DisconnectedType
 from theano.tensor import basic as tensor
+
+GPU=True
+
+if GPU:
+    import pygpu
+    import pycuda.gpuarray as gpuarray
+    import pycuda.cumath as cumath
+    import pycuda.autoinit
+    import skcuda.linalg as gpu_linalg
+    gpu_linalg.init()
 
 
 logger = logging.getLogger(__name__)
 
-def chol2inv(chol):
-    return spla.cho_solve((chol, False), numpy.eye(chol.shape[ 0 ]))
+    
+def inverse_using_cholesky(x):
+    if GPU:
+        if isinstance(x, pygpu.gpuarray.GpuArray):
+            x_gpu = gpuarray.GPUArray(x.shape, x.dtype,  base=x, gpudata=(x.gpudata + x.offset), order='F') # this works only because x is symmetric!!
+            x_gpu = x_gpu.copy().reshape(x.shape, order='F')  # we cannot perform inplace
+            b_gpu = gpu_linalg.eye(x.shape[0]).reshape(x.shape, order='F')
+            gpu_linalg.cho_solve(x_gpu, b_gpu)
+            r = b_gpu.reshape(x.shape, order='C')
+#             return r.get()
+            return pygpu.gpuarray.asarray(r.get(), dtype=r.dtype, context=x.context) # this is stupid but I didn't figure out, how to wrap it back as pygpu.gpuarray :(
+        else:
+            print('Using slow GPU chol-inverse')
+            x_gpu = gpuarray.to_gpu(x).reshape(x.shape, order='F')
+            b_gpu = gpu_linalg.eye(x.shape[0]).reshape(x.shape, order='F')
+            gpu_linalg.cho_solve(x_gpu, b_gpu)
+            return b_gpu.reshape(x.shape, order='C').get()
+    else:
+        print('Using CPU chol-inverse')
+        chol = spla.cholesky(x, lower=False)
+        return spla.cho_solve((chol, False), np.eye(chol.shape[0]))
+            
+def log_det_using_cholesky(x):
+    if GPU:
+        if isinstance(x, pygpu.gpuarray.GpuArray):
+            if np.any(np.isnan(x)):
+                print('x is nan')
+            x_gpu = gpuarray.GPUArray(x.shape, x.dtype,  base=x, gpudata=(x.gpudata + x.offset))
+            x_gpu = x_gpu.copy()  # we cannot perform in-place
+            gpu_linalg.cholesky(x_gpu)
+            r = x_gpu.get()
+        else:
+            print('Using slow GPU log-det')
+            x_gpu = gpuarray.to_gpu(x)
+            gpu_linalg.cholesky(x_gpu)
+            r = x_gpu.get()
+#         d = gpu_linalg.diag(x_gpu)
+#         cumath.log(d, out=d)
+#         result =  2 * gpuarray.sum(d)
+#         return result.get()
+    else:
+        r = spla.cholesky(x, lower=False)
+        
+    return 2 * np.sum(np.log(np.diag(r)))
+
 
 class MatrixInversePSD(Op):
     """Computes the inverse of a matrix :math:`A`.
@@ -39,14 +91,18 @@ class MatrixInversePSD(Op):
         pass
 
     def make_node(self, x):
-        x = as_tensor_variable(x)
+#         x = as_tensor_variable(x)
+        ctx = theano.gpuarray.basic_ops.infer_context_name(x)
+        x_gpu = theano.gpuarray.basic_ops.as_gpuarray_variable(x, ctx)
         assert x.ndim == 2
-        return Apply(self, [x], [x.type()])
+        return Apply(self, [x_gpu], [x_gpu.type()])
 
     def perform(self, node, inputs, outputs):
         (x,) = inputs
         (z,) = outputs
-        z[0] = chol2inv(spla.cholesky(x, lower = False)).astype(x.dtype)
+        z[0] = inverse_using_cholesky(x).astype(x.dtype)
+        if np.any(np.isnan(z[0])):
+            print('z[0] is nan!')
 
     def grad(self, inputs, g_outputs):
         r"""The gradient function should return
@@ -65,7 +121,8 @@ class MatrixInversePSD(Op):
         xi = self(x)
         gz, = g_outputs
         # TT.dot(gz.T,xi)
-        return [-matrix_dot(xi, gz.T, xi).T]
+        return [-T.dot(T.dot(xi, gz.T), xi).T]
+        #return [-matrix_dot(xi, gz.T, xi).T]
 
     def R_op(self, inputs, eval_points):
         r"""The gradient function should return
@@ -85,7 +142,8 @@ class MatrixInversePSD(Op):
         ev, = eval_points
         if ev is None:
             return [None]
-        return [-matrix_dot(xi, ev, xi)]
+        return [-T.dot(T.dot(xi, ev), xi)]
+        #return [-matrix_dot(xi, ev, xi)]
 
     def infer_shape(self, node, shapes):
         return shapes
@@ -101,16 +159,20 @@ class LogDetPSD(Op):
     __props__ = ()
 
     def make_node(self, x):
-        x = as_tensor_variable(x)
+#         x = as_tensor_variable(x)
+        ctx = theano.gpuarray.basic_ops.infer_context_name(x)
+        x_gpu = theano.gpuarray.basic_ops.as_gpuarray_variable(x, ctx)
         assert x.ndim == 2
-        o = theano.tensor.scalar(dtype=x.dtype)
-        return Apply(self, [x], [o])
+        o = T.scalar(dtype=x.dtype)
+        return Apply(self, [x_gpu], [o])
 
     def perform(self, node, inputs, outputs):
         (x,) = inputs
         (z,) = outputs
         try:
-            z[0] = numpy.asarray(2 * numpy.sum(numpy.log(numpy.diag(spla.cholesky(x, lower = False)))), dtype=x.dtype)
+            z[0] = np.asarray(log_det_using_cholesky(x), dtype=x.dtype)
+            if np.any(np.isnan(z[0])):
+                print('z[0] is nan!!')
         except Exception:
             print('Failed to compute log determinant', x)
             raise

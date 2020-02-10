@@ -39,7 +39,7 @@ def global_optimization(grid, lower, upper, function_grid, function_scalar, func
 
     return x_optimal, y_opt
 
-def adam_theano(loss, all_params, learning_rate = 0.001):
+def adam_theano(loss, all_params, learning_rate=0.001):
     b1 = 0.9
     b2 = 0.999
     e = 1e-8
@@ -189,7 +189,7 @@ class SparseGP:
         return y_opt
 
     def train_via_ADAM(self, input_means, input_vars, training_targets, input_means_test, input_vars_test, test_targets, \
-        max_iterations = 500, minibatch_size = 4000, learning_rate = 1e-3, ignoroe_variances = True, verbose=1, progress_bar=tqdm):
+        max_iterations = 500, minibatch_size = 4000, learning_rate = 1e-3, ignoroe_variances = True, verbose=1, progress_bar=tqdm, epoch_callback=None):
 
         input_means = input_means.astype(theano.config.floatX)
         input_vars = input_vars.astype(theano.config.floatX)
@@ -202,7 +202,7 @@ class SparseGP:
 
         if verbose > 0:
             print('Initializing network')
-        sys.stdout.flush()
+            sys.stdout.flush()
         self.setForTraining()
         self.initialize()
 
@@ -214,25 +214,32 @@ class SparseGP:
 
         all_params = self.get_params()
 
-        if verbose > 0:
+        if verbose > -1:
             print('Compiling adam updates')
-        sys.stdout.flush()
+            sys.stdout.flush()
 
-        updates = adam_theano(-e, all_params, learning_rate)
+        if callable(learning_rate):
+            learning_rate_var = theano.shared(np.array(learning_rate(None, 0), dtype=theano.config.floatX))
+        else:
+            learning_rate_var = theano.shared(np.array(learning_rate, dtype=theano.config.floatX))
+            
+        updates = adam_theano(-e, all_params, learning_rate_var)
         process_minibatch_adam = theano.function([ X, Z, y ], -e, updates=updates, givens = { self.input_means: X, self.input_vars: Z, self.original_training_targets: y })
 
         # Main loop of the optimization
 
-        if verbose > 0:
+        if verbose > -1:
             print('Training')
         sys.stdout.flush()
         n_batches = int(np.ceil(1.0 * n_data_points / minibatch_size))
         for j in progress_bar(range(max_iterations)):
+            if callable(learning_rate):                
+                learning_rate_var.set_value(learning_rate(learning_rate_var.get_value(), j))
             if verbose > 0:
                 print('Epoch: {}'.format(j))
             suffle = np.random.choice(n_data_points, n_data_points, replace = False)
-            input_means = input_means[ suffle, : ]
-            input_vars = input_vars[ suffle, : ]
+            input_means = input_means[suffle, :]
+            input_vars = input_vars[suffle, :]
             training_targets = training_targets[ suffle, : ]
 
             for i in range(n_batches):
@@ -246,15 +253,16 @@ class SparseGP:
 
                 if verbose > 1:
                     print('Epoch: {}, Mini-batch: {} of {} - Energy: {} Time: {}'.format(j, i, n_batches, current_energy, elapsed_time))
-                sys.stdout.flush()
+                    sys.stdout.flush()
 
-            if verbose > 0:
+            if verbose > 0 or epoch_callback is not None:
                 pred, uncert = self.predict(input_means_test, input_vars_test)
                 test_error = np.sqrt(np.mean((pred - test_targets)**2))
                 test_ll = np.mean(sps.norm.logpdf(pred - test_targets, scale = np.sqrt(uncert)))
 
-                print('Test error: {} Test ll: {}'.format(test_error, test_ll))
-                sys.stdout.flush()
+                if verbose > 0:
+                    print('Test error: {} Test ll: {}'.format(test_error, test_ll))
+                    sys.stdout.flush()
 
                 pred = np.zeros((0, 1))
                 uncert = np.zeros((0, uncert.shape[ 1 ]))
@@ -268,8 +276,12 @@ class SparseGP:
                 training_error = np.sqrt(np.mean((pred - training_targets)**2))
                 training_ll = np.mean(sps.norm.logpdf(pred - training_targets, scale = np.sqrt(uncert)))
 
-                print('Train error: {} Train ll: {}'.format(training_error, training_ll))
-                sys.stdout.flush()
+                if verbose > 0:
+                    print('Train error: {} Train ll: {}'.format(training_error, training_ll))
+                    sys.stdout.flush()
+                    
+                if epoch_callback is not None:
+                    epoch_callback(self, {'iter':j, 'test_rmse':test_error, 'test_ll':test_ll, 'train_rmse':training_error, 'train_ll': training_ll})
 
                 
     def get_incumbent(self, grid, lower, upper):
