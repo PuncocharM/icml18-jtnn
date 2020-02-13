@@ -29,15 +29,20 @@ logger = logging.getLogger(__name__)
 def inverse_using_cholesky(x):
     if GPU:
         if isinstance(x, pygpu.gpuarray.GpuArray):
-            x_gpu = gpuarray.GPUArray(x.shape, x.dtype,  base=x, gpudata=(x.gpudata + x.offset), order='F') # this works only because x is symmetric!!
-            x_gpu = x_gpu.copy().reshape(x.shape, order='F')  # we cannot perform inplace
-            b_gpu = gpu_linalg.eye(x.shape[0]).reshape(x.shape, order='F')
-            gpu_linalg.cho_solve(x_gpu, b_gpu)
-            r = b_gpu.reshape(x.shape, order='C')
-#             return r.get()
-            return pygpu.gpuarray.asarray(r.get(), dtype=r.dtype, context=x.context) # this is stupid but I didn't figure out, how to wrap it back as pygpu.gpuarray :(
+            # we cannot perform inplace, so we have to copy
+            x = x.copy(order='F')
+            # then wrap in a pycuda array
+            x_gpu = gpuarray.GPUArray(x.shape, x.dtype,  base=x, gpudata=(x.gpudata + x.offset), order='F')
+            # make b_gpu a identity matrix
+            b_gpu = pygpu.gpuarray.zeros(x_gpu.shape, x_gpu.dtype, order='F', context=x.context)
+            eye_k = gpu_linalg._get_eye_kernel(x_gpu.dtype)
+            N = x_gpu.shape[0]
+            eye_k(b_gpu, slice=slice(0, N*N, N+1))
+            # solve using cholesky
+            gpu_linalg.cho_solve(x_gpu, b_gpu) # this needs Fortran order, it writes result to b_gpu
+            return b_gpu  # we return the matrix in 'F' order... works only because it's symmetric!!
         else:
-            print('Using slow GPU chol-inverse')
+            print('Warning: Using slow GPU chol-inverse')
             x_gpu = gpuarray.to_gpu(x).reshape(x.shape, order='F')
             b_gpu = gpu_linalg.eye(x.shape[0]).reshape(x.shape, order='F')
             gpu_linalg.cho_solve(x_gpu, b_gpu)
@@ -50,21 +55,15 @@ def inverse_using_cholesky(x):
 def log_det_using_cholesky(x):
     if GPU:
         if isinstance(x, pygpu.gpuarray.GpuArray):
-            if np.any(np.isnan(x)):
-                print('x is nan')
+            x = x.copy() # we cannot perform in-place
             x_gpu = gpuarray.GPUArray(x.shape, x.dtype,  base=x, gpudata=(x.gpudata + x.offset))
-            x_gpu = x_gpu.copy()  # we cannot perform in-place
             gpu_linalg.cholesky(x_gpu)
             r = x_gpu.get()
         else:
-            print('Using slow GPU log-det')
+            print('Warning: Using slow GPU log-det')
             x_gpu = gpuarray.to_gpu(x)
             gpu_linalg.cholesky(x_gpu)
             r = x_gpu.get()
-#         d = gpu_linalg.diag(x_gpu)
-#         cumath.log(d, out=d)
-#         result =  2 * gpuarray.sum(d)
-#         return result.get()
     else:
         r = spla.cholesky(x, lower=False)
         
@@ -101,8 +100,6 @@ class MatrixInversePSD(Op):
         (x,) = inputs
         (z,) = outputs
         z[0] = inverse_using_cholesky(x).astype(x.dtype)
-        if np.any(np.isnan(z[0])):
-            print('z[0] is nan!')
 
     def grad(self, inputs, g_outputs):
         r"""The gradient function should return
@@ -171,8 +168,6 @@ class LogDetPSD(Op):
         (z,) = outputs
         try:
             z[0] = np.asarray(log_det_using_cholesky(x), dtype=x.dtype)
-            if np.any(np.isnan(z[0])):
-                print('z[0] is nan!!')
         except Exception:
             print('Failed to compute log determinant', x)
             raise
