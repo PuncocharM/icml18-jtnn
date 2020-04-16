@@ -12,7 +12,7 @@ from theano.tensor.nlinalg import *
 from theano.gof import Op, Apply
 from theano.tensor import basic as tensor
 
-GPU=True
+GPU=False
 
 if GPU:
     import pygpu
@@ -39,7 +39,8 @@ def inverse_using_cholesky(x):
             N = x_gpu.shape[0]
             eye_k(b_gpu, slice=slice(0, N*N, N+1))
             # solve using cholesky
-            gpu_linalg.cho_solve(x_gpu, b_gpu) # this needs Fortran order, it writes result to b_gpu
+            b_gpu2 = gpuarray.GPUArray(b_gpu.shape, b_gpu.dtype,  base=b_gpu, gpudata=(b_gpu.gpudata + b_gpu.offset), order='F')
+            gpu_linalg.cho_solve(x_gpu, b_gpu2) # this needs Fortran order, it writes result to b_gpu
             return b_gpu  # we return the matrix in 'F' order... works only because it's symmetric!!
         else:
             print('Warning: Using slow GPU chol-inverse')
@@ -48,7 +49,7 @@ def inverse_using_cholesky(x):
             gpu_linalg.cho_solve(x_gpu, b_gpu)
             return b_gpu.reshape(x.shape, order='C').get()
     else:
-        print('Using CPU chol-inverse')
+#         print('Using CPU chol-inverse')
         chol = spla.cholesky(x, lower=False)
         return spla.cho_solve((chol, False), np.eye(chol.shape[0]))
             
@@ -90,11 +91,13 @@ class MatrixInversePSD(Op):
         pass
 
     def make_node(self, x):
-#         x = as_tensor_variable(x)
-        ctx = theano.gpuarray.basic_ops.infer_context_name(x)
-        x_gpu = theano.gpuarray.basic_ops.as_gpuarray_variable(x, ctx)
+        if GPU:
+            ctx = theano.gpuarray.basic_ops.infer_context_name(x)
+            x = theano.gpuarray.basic_ops.as_gpuarray_variable(x, ctx)
+        else:
+            x = as_tensor_variable(x)
         assert x.ndim == 2
-        return Apply(self, [x_gpu], [x_gpu.type()])
+        return Apply(self, [x], [x.type()])
 
     def perform(self, node, inputs, outputs):
         (x,) = inputs
@@ -156,12 +159,14 @@ class LogDetPSD(Op):
     __props__ = ()
 
     def make_node(self, x):
-#         x = as_tensor_variable(x)
-        ctx = theano.gpuarray.basic_ops.infer_context_name(x)
-        x_gpu = theano.gpuarray.basic_ops.as_gpuarray_variable(x, ctx)
+        if GPU:
+            ctx = theano.gpuarray.basic_ops.infer_context_name(x)
+            x_gpu = theano.gpuarray.basic_ops.as_gpuarray_variable(x, ctx)
+        else:
+            x = as_tensor_variable(x)
         assert x.ndim == 2
         o = T.scalar(dtype=x.dtype)
-        return Apply(self, [x_gpu], [o])
+        return Apply(self, [x], [o])
 
     def perform(self, node, inputs, outputs):
         (x,) = inputs
